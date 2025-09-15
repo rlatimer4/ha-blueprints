@@ -1,0 +1,247 @@
+blueprint:
+  name: "Auto-Print TODO Lists"
+  description: >
+    Automatically print TODO lists based on various triggers like time, location, 
+    or device state changes. Perfect for printing shopping lists when leaving home,
+    daily task lists in the morning, or weekly planning sessions.
+    
+    Requires the "TODO List Thermal Printer" script blueprint to be installed first.
+    
+  domain: automation
+  source_url: https://github.com/yourusername/thermal-printer-blueprints
+  author: "Your Name"
+  
+  input:
+    todo_printer_script:
+      name: "TODO Printer Script"
+      description: "The script created from the TODO List Thermal Printer blueprint"
+      selector:
+        entity:
+          domain: script
+          
+    trigger_type:
+      name: "When to Print"
+      description: "Choose what triggers the printing"
+      default: "time"
+      selector:
+        select:
+          options:
+            - label: "At a specific time"
+              value: "time"
+            - label: "When someone leaves home"
+              value: "leaving_home"
+            - label: "When someone arrives home"
+              value: "arriving_home"
+            - label: "When a device state changes"
+              value: "device_state"
+            - label: "Manually triggered only"
+              value: "manual"
+              
+    trigger_time:
+      name: "Print Time"
+      description: "What time to print (only used with time trigger)"
+      default: "08:00:00"
+      selector:
+        time:
+        
+    trigger_days:
+      name: "Days to Print"
+      description: "Which days to auto-print (only used with time trigger)"
+      default:
+        - mon
+        - tue
+        - wed
+        - thu
+        - fri
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: "Monday"
+              value: "mon"
+            - label: "Tuesday"
+              value: "tue"
+            - label: "Wednesday"
+              value: "wed"
+            - label: "Thursday"
+              value: "thu"
+            - label: "Friday"
+              value: "fri"
+            - label: "Saturday"
+              value: "sat"
+            - label: "Sunday"
+              value: "sun"
+              
+    person_entity:
+      name: "Person to Track"
+      description: "Person whose location triggers printing (only used with location triggers)"
+      default: ""
+      selector:
+        entity:
+          domain: person
+          
+    device_entity:
+      name: "Device to Monitor"
+      description: "Device whose state change triggers printing (only used with device trigger)"
+      default: ""
+      selector:
+        entity:
+          
+    device_state:
+      name: "Device State"
+      description: "State that triggers printing (only used with device trigger)"
+      default: "on"
+      selector:
+        text:
+        
+    todo_entities:
+      name: "TODO Lists to Print"
+      description: "Which TODO lists to print (can select multiple)"
+      selector:
+        entity:
+          domain: todo
+          multiple: true
+          
+    include_completed:
+      name: "Include Completed Items"
+      description: "Whether to include completed items in the printout"
+      default: false
+      selector:
+        boolean:
+        
+    minimum_items:
+      name: "Minimum Items to Print"
+      description: "Only print if the list has at least this many incomplete items"
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 50
+          
+    quiet_hours_start:
+      name: "Quiet Hours Start"
+      description: "Don't print during quiet hours (start time)"
+      default: "22:00:00"
+      selector:
+        time:
+        
+    quiet_hours_end:
+      name: "Quiet Hours End"
+      description: "Don't print during quiet hours (end time)"
+      default: "07:00:00"
+      selector:
+        time:
+        
+    enable_notifications:
+      name: "Send Notifications"
+      description: "Send a notification when printing occurs"
+      default: false
+      selector:
+        boolean:
+        
+    notification_service:
+      name: "Notification Service"
+      description: "Service to use for notifications (e.g., notify.mobile_app_phone)"
+      default: "notify.persistent_notification"
+      selector:
+        text:
+
+variables:
+  todo_entities: !input todo_entities
+  include_completed: !input include_completed
+  minimum_items: !input minimum_items
+  enable_notifications: !input enable_notifications
+  notification_service: !input notification_service
+
+trigger:
+  # Time-based trigger
+  - platform: time
+    at: !input trigger_time
+    id: "time_trigger"
+    enabled: "{{ trigger_type == 'time' }}"
+    
+  # Location-based triggers
+  - platform: state
+    entity_id: !input person_entity
+    from: "home"
+    to: "not_home"
+    id: "leaving_home"
+    enabled: "{{ trigger_type == 'leaving_home' }}"
+    
+  - platform: state
+    entity_id: !input person_entity
+    to: "home"
+    id: "arriving_home"
+    enabled: "{{ trigger_type == 'arriving_home' }}"
+    
+  # Device state trigger
+  - platform: state
+    entity_id: !input device_entity
+    to: !input device_state
+    id: "device_state"
+    enabled: "{{ trigger_type == 'device_state' }}"
+
+condition:
+  # Check day of week for time triggers
+  - condition: or
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.id != 'time_trigger' }}"
+      - condition: time
+        weekday: !input trigger_days
+        
+  # Check quiet hours
+  - condition: not
+    conditions:
+      - condition: time
+        after: !input quiet_hours_start
+        before: !input quiet_hours_end
+
+action:
+  # Print each selected TODO list
+  - repeat:
+      for_each: "{{ todo_entities }}"
+      sequence:
+        - variables:
+            current_todo: "{{ repeat.item }}"
+            todo_items: "{{ state_attr(current_todo, 'items') | default([]) }}"
+            incomplete_count: >
+              {{ todo_items | selectattr('status', 'equalto', 'needs_action') | list | length }}
+            list_name: >
+              {{ state_attr(current_todo, 'friendly_name') or 
+                 current_todo.split('.')[1].replace('_', ' ').title() }}
+                 
+        # Only print if minimum items condition is met
+        - condition: template
+          value_template: "{{ incomplete_count >= minimum_items }}"
+          
+        # Print the TODO list
+        - service: !input todo_printer_script
+          data:
+            todo_entity: "{{ current_todo }}"
+            include_completed: "{{ include_completed }}"
+            add_date: true
+            
+        # Send notification if enabled
+        - if:
+            - condition: template
+              value_template: "{{ enable_notifications }}"
+          then:
+            - service: "{{ notification_service }}"
+              data:
+                title: "📝 TODO List Printed"
+                message: >
+                  {{ list_name }} printed with {{ incomplete_count }} item
+                  {%- if incomplete_count != 1 -%}s{%- endif -%}
+                  {%- if include_completed and (todo_items | selectattr('status', 'equalto', 'completed') | list | length > 0) -%}
+                  {{ ' (plus ' + (todo_items | selectattr('status', 'equalto', 'completed') | list | length | string) + ' completed)' }}
+                  {%- endif %}
+                data:
+                  tag: "todo_printed"
+                  
+        # Small delay between lists if printing multiple
+        - delay:
+            seconds: 2
+
+mode: queued
+max: 5
