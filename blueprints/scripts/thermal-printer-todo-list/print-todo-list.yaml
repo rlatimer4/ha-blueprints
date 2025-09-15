@@ -1,13 +1,13 @@
 blueprint:
-  name: "Reliable TODO List Printer"
+  name: "Reliable TODO List Printer (Fixed)"
   description: >
     Print Home Assistant TODO lists to a thermal printer with checkboxes.
     
-    Simplified and reliable version that avoids complex entity checks.
+    Simplified and reliable version with proper parameter handling.
     Uses todo.get_items service to properly retrieve TODO list data.
     
     Features:
-    - Prints items with [ ] or [X] checkboxes
+    - Prints items with [ ] or [X] checkboxes only
     - Dropdown selection for TODO lists
     - Simple printer device configuration
     - Clean formatting with date and item counts
@@ -40,19 +40,6 @@ blueprint:
       default: true
       selector:
         boolean:
-        
-    checkbox_style:
-      name: "Checkbox Style"
-      default: "square"
-      selector:
-        select:
-          options:
-            - label: "Square brackets [ ]"
-              value: "square"
-            - label: "Checkbox symbols ☐ ☑"
-              value: "symbols"
-            - label: "Simple dash - x"
-              value: "dash"
 
 # Fields for runtime customization
 fields:
@@ -75,7 +62,6 @@ sequence:
       default_todo_entity: !input default_todo_entity
       include_completed_default: !input include_completed_default
       add_date_default: !input add_date_default
-      checkbox_style: !input checkbox_style
       
       # Runtime parameters with fallbacks
       final_todo_entity: >
@@ -88,16 +74,6 @@ sequence:
         {{ state_attr(final_todo_entity, 'friendly_name') or 
            final_todo_entity.split('.')[1].replace('_', ' ').title() }}
       current_date: "{{ now().strftime('%Y-%m-%d %H:%M') }}"
-      
-      # Checkbox characters
-      empty_checkbox: >
-        {% if checkbox_style == 'symbols' %}☐
-        {% elif checkbox_style == 'dash' %}-
-        {% else %}[ ]{% endif %}
-      filled_checkbox: >
-        {% if checkbox_style == 'symbols' %}☑
-        {% elif checkbox_style == 'dash' %}x
-        {% else %}[X]{% endif %}
 
   # Get TODO items using the service call
   - service: todo.get_items
@@ -126,6 +102,9 @@ sequence:
       text_size: "M"
       alignment: "C"
       bold: true
+      underline: false
+      inverse: false
+      rotation: 0
       
   - if:
       - condition: template
@@ -136,29 +115,37 @@ sequence:
           message: "{{ current_date }}"
           text_size: "S"
           alignment: "C"
+          bold: false
+          underline: false
+          inverse: false
+          rotation: 0
 
   - service: "esphome.{{ printer_device }}_print_text"
     data:
       message: "================================"
       text_size: "S"
       alignment: "C"
+      bold: false
+      underline: false
+      inverse: false
+      rotation: 0
       
   - service: "esphome.{{ printer_device }}_feed_paper"
     data:
       lines: 1
       
-  # Small delay after header before starting items
+  # Delay after header before starting items
   - delay:
-      milliseconds: 300
+      seconds: 1
 
   # Print each item
   - repeat:
-      for_each: "{{ filtered_items }}"
+      count: "{{ filtered_items | length }}"
       sequence:
         - variables:
-            item: "{{ repeat.item }}"
+            item: "{{ filtered_items[repeat.index - 1] }}"
             checkbox: >
-              {% if item.status == 'completed' %}{{ filled_checkbox }}{% else %}{{ empty_checkbox }}{% endif %}
+              {% if item.status == 'completed' %}[X]{% else %}[ ]{% endif %}
             item_text: "{{ checkbox }} {{ item.summary }}"
                 
         - service: "esphome.{{ printer_device }}_print_text"
@@ -167,6 +154,13 @@ sequence:
             text_size: "S"
             alignment: "L"
             bold: "{{ item.status == 'completed' }}"
+            underline: false
+            inverse: false
+            rotation: 0
+            
+        # Long delay between items (like debug version that worked)
+        - delay:
+            seconds: 2
 
   # Print footer
   - service: "esphome.{{ printer_device }}_feed_paper"
@@ -216,6 +210,7 @@ sequence:
       underline: false
       inverse: false
       rotation: 0
+      
   - service: "esphome.{{ printer_device }}_feed_paper"
     data:
       lines: 3
