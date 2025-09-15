@@ -1,0 +1,168 @@
+blueprint:
+  name: "Debug TODO List Printer"
+  description: >
+    Debug version of TODO list printer with extensive logging and delays.
+    Use this to troubleshoot why only the first item prints.
+    
+  domain: script
+  
+  input:
+    printer_device:
+      name: "Thermal Printer Device Name"
+      default: "thermal_printer"
+      selector:
+        text:
+          
+    default_todo_entity:
+      name: "Default TODO List"
+      selector:
+        entity:
+          domain: todo
+
+# Fields for runtime customization
+fields:
+  todo_entity:
+    description: "TODO list entity to print"
+    required: false
+    selector:
+      entity:
+        domain: todo
+
+sequence:
+  - variables:
+      printer_device: !input printer_device
+      default_todo_entity: !input default_todo_entity
+      final_todo_entity: >
+        {{ todo_entity if todo_entity is defined and todo_entity != "" else default_todo_entity }}
+      
+  # Log what we're about to do
+  - service: system_log.write
+    data:
+      message: "DEBUG: Starting TODO print for entity: {{ final_todo_entity }}"
+      level: info
+
+  # Get TODO items
+  - service: todo.get_items
+    target:
+      entity_id: "{{ final_todo_entity }}"
+    response_variable: todo_response
+
+  - variables:
+      all_items: "{{ todo_response[final_todo_entity]['items'] | default([]) }}"
+      filtered_items: "{{ all_items | selectattr('status', 'equalto', 'needs_action') | list }}"
+
+  # Log what we found
+  - service: system_log.write
+    data:
+      message: "DEBUG: Found {{ filtered_items | length }} items to print"
+      level: info
+
+  # Print debug header
+  - service: "esphome.{{ printer_device }}_print_text"
+    data:
+      message: "=== DEBUG TODO PRINT ==="
+      text_size: "M"
+      alignment: "C"
+      bold: true
+      underline: false
+      inverse: false
+      rotation: 0
+      
+  - delay:
+      milliseconds: 1000
+
+  - service: "esphome.{{ printer_device }}_print_text"
+    data:
+      message: "Items to print: {{ filtered_items | length }}"
+      text_size: "S"
+      alignment: "L"
+      bold: false
+      underline: false
+      inverse: false
+      rotation: 0
+      
+  - delay:
+      milliseconds: 1000
+
+  # Print each item with extensive debugging
+  - repeat:
+      count: "{{ filtered_items | length }}"
+      sequence:
+        # Log current iteration
+        - service: system_log.write
+          data:
+            message: "DEBUG: Processing item {{ repeat.index }} of {{ filtered_items | length }}"
+            level: info
+            
+        - variables:
+            current_index: "{{ repeat.index - 1 }}"
+            item: "{{ filtered_items[current_index] }}"
+            item_summary: "{{ item.summary }}"
+            item_status: "{{ item.status }}"
+            
+        # Log item details
+        - service: system_log.write
+          data:
+            message: "DEBUG: Item {{ repeat.index }}: '{{ item_summary }}' (status: {{ item_status }})"
+            level: info
+            
+        # Print item number first
+        - service: "esphome.{{ printer_device }}_print_text"
+          data:
+            message: "Item {{ repeat.index }}:"
+            text_size: "S"
+            alignment: "L"
+            bold: true
+            underline: false
+            inverse: false
+            rotation: 0
+            
+        - delay:
+            milliseconds: 800
+            
+        # Print the actual item
+        - service: "esphome.{{ printer_device }}_print_text"
+          data:
+            message: "[ ] {{ item_summary }}"
+            text_size: "S"
+            alignment: "L"
+            bold: false
+            underline: false
+            inverse: false
+            rotation: 0
+            
+        # Longer delay between items
+        - delay:
+            milliseconds: 1500
+            
+        # Log completion of this item
+        - service: system_log.write
+          data:
+            message: "DEBUG: Completed printing item {{ repeat.index }}"
+            level: info
+
+  # Final debug message
+  - delay:
+      milliseconds: 1000
+      
+  - service: "esphome.{{ printer_device }}_print_text"
+    data:
+      message: "=== DEBUG COMPLETE ==="
+      text_size: "S"
+      alignment: "C"
+      bold: false
+      underline: false
+      inverse: false
+      rotation: 0
+      
+  - service: "esphome.{{ printer_device }}_feed_paper"
+    data:
+      lines: 3
+      
+  - service: system_log.write
+    data:
+      message: "DEBUG: TODO print script completed"
+      level: info
+
+mode: queued
+icon: mdi:bug
