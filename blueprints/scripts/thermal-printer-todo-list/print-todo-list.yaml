@@ -113,29 +113,67 @@ blueprint:
       selector:
         boolean:
 
-variables:
-  printer_device: !input printer_device
-  header_style: !input header_style
-  text_size: !input text_size
-  checkbox_style: !input checkbox_style
-  footer_info: !input footer_info
-  extra_spacing: !input extra_spacing
+# Add fields for runtime customization
+fields:
+  todo_entity:
+    description: "TODO list entity to print (overrides blueprint default)"
+    example: "todo.shopping_list"
+    required: false
+    selector:
+      entity:
+        domain: todo
+  include_completed:
+    description: "Include completed items (overrides blueprint default)"
+    required: false
+    selector:
+      boolean:
+  add_date:
+    description: "Add current date to header (overrides blueprint default)"
+    required: false
+    selector:
+      boolean:
 
 sequence:
   - variables:
-      # Get input parameters with defaults
-      todo_entity: "{{ todo_entity if todo_entity is defined else '!input default_todo_entity' }}"
-      include_completed: "{{ include_completed if include_completed is defined else !input include_completed_default }}"
-      add_date: "{{ add_date if add_date is defined else !input add_date_default }}"
+      # Blueprint configuration
+      printer_device: !input printer_device
+      default_todo_entity: !input default_todo_entity
+      include_completed_default: !input include_completed_default
+      add_date_default: !input add_date_default
+      header_style: !input header_style
+      text_size: !input text_size
+      checkbox_style: !input checkbox_style
+      footer_info: !input footer_info
+      extra_spacing: !input extra_spacing
+      
+      # Runtime parameters (with fallbacks to blueprint defaults)
+      final_todo_entity: >
+        {% if todo_entity is defined and todo_entity %}
+          {{ todo_entity }}
+        {% else %}
+          {{ default_todo_entity }}
+        {% endif %}
+      final_include_completed: >
+        {% if include_completed is defined %}
+          {{ include_completed }}
+        {% else %}
+          {{ include_completed_default }}
+        {% endif %}
+      final_add_date: >
+        {% if add_date is defined %}
+          {{ add_date }}
+        {% else %}
+          {{ add_date_default }}
+        {% endif %}
       
       # Get the TODO list items and metadata
-      todo_items: "{{ state_attr(todo_entity, 'items') | list }}"
-      list_name: "{{ state_attr(todo_entity, 'friendly_name') or todo_entity.split('.')[1].replace('_', ' ').title() }}"
+      todo_items: "{{ state_attr(final_todo_entity, 'items') | list }}"
+      list_name: "{{ state_attr(final_todo_entity, 'friendly_name') or final_todo_entity.split('.')[1].replace('_', ' ').title() }}"
       current_date: "{{ now().strftime('%Y-%m-%d %H:%M') }}"
       
       # Filter items based on completion status
       filtered_items: >
-        {% if include_completed %}
+        {% if final_include_completed %}
           {{ todo_items }}
         {% else %}
           {{ todo_items | selectattr('status', 'equalto', 'needs_action') | list }}
@@ -201,27 +239,27 @@ sequence:
     default: []
 
   # Print date if requested
-  - if:
+  - condition: and
+    conditions:
       - condition: template
-        value_template: "{{ add_date and header_style != 'minimal' }}"
-    then:
-      - service: "esphome.{{ printer_device }}_feed_paper"
-        data:
-          lines: 1
-      - service: "esphome.{{ printer_device }}_print_text"
-        data:
-          message: "{{ current_date }}"
-          text_size: "S"
-          alignment: "C"
-
-  # Add spacing after header
-  - if:
+        value_template: "{{ final_add_date }}"
       - condition: template
         value_template: "{{ header_style != 'minimal' }}"
-    then:
-      - service: "esphome.{{ printer_device }}_feed_paper"
-        data:
-          lines: 1
+  - service: "esphome.{{ printer_device }}_feed_paper"
+    data:
+      lines: 1
+  - service: "esphome.{{ printer_device }}_print_text"
+    data:
+      message: "{{ current_date }}"
+      text_size: "S"
+      alignment: "C"
+
+  # Add spacing after header
+  - condition: template
+    value_template: "{{ header_style != 'minimal' }}"
+  - service: "esphome.{{ printer_device }}_feed_paper"
+    data:
+      lines: 1
 
   # Print each TODO item with checkbox
   - repeat:
@@ -238,13 +276,15 @@ sequence:
             item_text: "{{ checkbox }} {{ item.summary }}"
             
         # Add extra spacing between items if requested
-        - if:
+        - condition: and
+          conditions:
             - condition: template
-              value_template: "{{ extra_spacing and repeat.index > 1 }}"
-          then:
-            - service: "esphome.{{ printer_device }}_feed_paper"
-              data:
-                lines: 1
+              value_template: "{{ extra_spacing }}"
+            - condition: template
+              value_template: "{{ repeat.index > 1 }}"
+        - service: "esphome.{{ printer_device }}_feed_paper"
+          data:
+            lines: 1
                 
         - service: "esphome.{{ printer_device }}_print_text"
           data:
@@ -273,7 +313,7 @@ sequence:
             data:
               message: >
                 {{ filtered_items | length }} item{% if filtered_items | length != 1 %}s{% endif %}
-                {% if not include_completed and (todo_items | selectattr('status', 'equalto', 'completed') | list | length > 0) %}
+                {% if not final_include_completed and (todo_items | selectattr('status', 'equalto', 'completed') | list | length > 0) %}
                 ({{ todo_items | selectattr('status', 'equalto', 'completed') | list | length }} completed)
                 {% endif %}
               text_size: "S"
@@ -318,26 +358,6 @@ sequence:
   - service: "esphome.{{ printer_device }}_feed_paper"
     data:
       lines: 3
-
-# Add fields for runtime customization
-fields:
-  todo_entity:
-    description: "TODO list entity to print (overrides blueprint default)"
-    example: "todo.shopping_list"
-    required: false
-    selector:
-      entity:
-        domain: todo
-  include_completed:
-    description: "Include completed items (overrides blueprint default)"
-    required: false
-    selector:
-      boolean:
-  add_date:
-    description: "Add current date to header (overrides blueprint default)"
-    required: false
-    selector:
-      boolean:
 
 mode: queued
 icon: mdi:format-list-checkbox
