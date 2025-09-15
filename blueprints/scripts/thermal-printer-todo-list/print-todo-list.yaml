@@ -183,7 +183,6 @@ sequence:
               bold: false
               underline: false
               inverse: false
-              rotation: 0
                 
           - service: "esphome.{{ printer_device }}_print_text"
             data:
@@ -193,7 +192,6 @@ sequence:
               bold: true
               underline: false
               inverse: false
-              rotation: 0
               
           - service: "esphome.{{ printer_device }}_print_text"
             data:
@@ -203,7 +201,6 @@ sequence:
               bold: false
               underline: false
               inverse: false
-              rotation: 0
               
       - conditions:
           - condition: template
@@ -217,7 +214,7 @@ sequence:
               bold: true
               underline: false
               inverse: false
-              rotation: 0            
+        
     default:
       # Simple header style
       - service: "esphome.{{ printer_device }}_print_text"
@@ -227,8 +224,7 @@ sequence:
           alignment: "C"
           bold: true
           underline: false
-          inverse: false
-          rotation: 0     
+          inverse: false  
           
       - service: "esphome.{{ printer_device }}_print_text"
         data:
@@ -238,7 +234,7 @@ sequence:
           bold: false
           underline: false
           inverse: false
-          rotation: 0
+
   # Add date if requested
   - if:
       - condition: template
@@ -252,7 +248,6 @@ sequence:
           bold: false
           underline: false
           inverse: false
-          rotation: 0
           
   # Add spacing after header
   - service: "esphome.{{ printer_device }}_feed_paper"
@@ -285,7 +280,6 @@ sequence:
             bold: "{{ is_completed }}"
             underline: false
             inverse: false
-            rotation: 0
             
         # Queue-friendly delay between items
         - delay:
@@ -308,8 +302,7 @@ sequence:
           alignment: "C"
           bold: false
           underline: false
-          inverse: false
-          rotation: 0      
+          inverse: false   
           
   # Print summary line
   - service: "esphome.{{ printer_device }}_print_text"
@@ -322,7 +315,7 @@ sequence:
       bold: false
       underline: false
       inverse: false
-      rotation: 0
+
   # Print timestamp
   - service: "esphome.{{ printer_device }}_print_text"
     data:
@@ -332,7 +325,6 @@ sequence:
       bold: false
       underline: false
       inverse: false
-      rotation: 0
       
   # Final paper feed
   - service: "esphome.{{ printer_device }}_feed_paper"
