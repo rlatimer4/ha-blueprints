@@ -205,7 +205,7 @@ sequence:
       rotation: 0
       
   - delay:
-      milliseconds: 300
+      milliseconds: 500
       
   - service: "esphome.{{ printer_device }}_print_text"
     data:
