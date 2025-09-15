@@ -172,6 +172,10 @@ sequence:
   - service: "esphome.{{ printer_device }}_feed_paper"
     data:
       lines: 1
+      
+  - delay:
+      milliseconds: 300
+      
   - service: "esphome.{{ printer_device }}_print_text"
     data:
       message: "================================"
@@ -181,6 +185,10 @@ sequence:
       underline: false
       inverse: false
       rotation: 0
+      
+  - delay:
+      milliseconds: 300
+      
   - service: "esphome.{{ printer_device }}_print_text"
     data:
       message: >
@@ -195,6 +203,10 @@ sequence:
       underline: false
       inverse: false
       rotation: 0
+      
+  - delay:
+      milliseconds: 300
+      
   - service: "esphome.{{ printer_device }}_print_text"
     data:
       message: "{{ current_date }}"
