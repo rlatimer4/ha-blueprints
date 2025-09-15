@@ -154,12 +154,12 @@ sequence:
     data:
       lines: 1
 
-  # Print each item
+  # Print each item (corrected iteration pattern based on HA community examples)
   - repeat:
-      count: "{{ filtered_items | length }}"
+      for_each: "{{ filtered_items }}"
       sequence:
         - variables:
-            item: "{{ filtered_items[repeat.index - 1] }}"
+            item: "{{ repeat.item }}"
             checkbox: >
               {% if item.status == 'completed' %}{{ filled_checkbox }}{% else %}{{ empty_checkbox }}{% endif %}
             item_text: "{{ checkbox }} {{ item.summary }}"
