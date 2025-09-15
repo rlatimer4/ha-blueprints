@@ -1,14 +1,15 @@
 blueprint:
-  name: "TODO List Thermal Printer"
+  name: "TODO List Thermal Printer (Corrected)"
   description: >
     Print Home Assistant TODO lists to a thermal printer with checkboxes.
     
     This blueprint creates a script that formats TODO list items with checkboxes
-    and prints them to an ESPHome thermal printer. Perfect for shopping lists,
-    task lists, and daily planning.
+    and prints them to an ESPHome thermal printer. Uses todo.get_items service
+    to properly retrieve TODO list data.
     
     Features:
     - Prints items with [ ] or [X] checkboxes
+    - Uses proper todo.get_items service call
     - Customizable header and date options
     - Option to include or exclude completed items
     - Works with any TODO entity
@@ -89,29 +90,6 @@ blueprint:
               value: "symbols"
             - label: "Simple dash - x"
               value: "dash"
-            
-    footer_info:
-      name: "Footer Information"
-      description: "What to include in the footer"
-      default: "count_and_date"
-      selector:
-        select:
-          options:
-            - label: "Item count and date"
-              value: "count_and_date"
-            - label: "Item count only"
-              value: "count_only"
-            - label: "Date only"
-              value: "date_only"
-            - label: "No footer"
-              value: "none"
-              
-    extra_spacing:
-      name: "Extra Spacing"
-      description: "Add extra spacing between items for better readability"
-      default: false
-      selector:
-        boolean:
 
 # Add fields for runtime customization
 fields:
@@ -143,41 +121,32 @@ sequence:
       header_style: !input header_style
       text_size: !input text_size
       checkbox_style: !input checkbox_style
-      footer_info: !input footer_info
-      extra_spacing: !input extra_spacing
       
       # Runtime parameters (with fallbacks to blueprint defaults)
       final_todo_entity: >
-        {% if todo_entity is defined and todo_entity %}
+        {% if todo_entity is defined and todo_entity != "" and todo_entity != none %}
           {{ todo_entity }}
         {% else %}
           {{ default_todo_entity }}
         {% endif %}
       final_include_completed: >
-        {% if include_completed is defined %}
+        {% if include_completed is defined and include_completed is not none %}
           {{ include_completed }}
         {% else %}
           {{ include_completed_default }}
         {% endif %}
       final_add_date: >
-        {% if add_date is defined %}
+        {% if add_date is defined and add_date is not none %}
           {{ add_date }}
         {% else %}
           {{ add_date_default }}
         {% endif %}
       
-      # Get the TODO list items and metadata
-      todo_items: "{{ state_attr(final_todo_entity, 'items') | list }}"
-      list_name: "{{ state_attr(final_todo_entity, 'friendly_name') or final_todo_entity.split('.')[1].replace('_', ' ').title() }}"
+      # Get friendly name for the list
+      list_name: >
+        {{ state_attr(final_todo_entity, 'friendly_name') or 
+           final_todo_entity.split('.')[1].replace('_', ' ').title() }}
       current_date: "{{ now().strftime('%Y-%m-%d %H:%M') }}"
-      
-      # Filter items based on completion status
-      filtered_items: >
-        {% if final_include_completed %}
-          {{ todo_items }}
-        {% else %}
-          {{ todo_items | selectattr('status', 'equalto', 'needs_action') | list }}
-        {% endif %}
       
       # Checkbox characters based on style
       empty_checkbox: >
@@ -188,6 +157,31 @@ sequence:
         {% if checkbox_style == 'symbols' %}☑
         {% elif checkbox_style == 'dash' %}x
         {% else %}[X]{% endif %}
+
+  # Verify the TODO entity exists and is available
+  - condition: template
+    value_template: >
+      {{ final_todo_entity in states and 
+         states(final_todo_entity) not in ['unavailable', 'unknown'] }}
+    alias: "Check if TODO entity exists and is available"
+
+  # Get TODO items using the proper service call
+  - service: todo.get_items
+    target:
+      entity_id: "{{ final_todo_entity }}"
+    response_variable: todo_response
+
+  - variables:
+      # Extract items from the service response
+      all_items: "{{ todo_response[final_todo_entity]['items'] | default([]) }}"
+      
+      # Filter items based on completion status
+      filtered_items: >
+        {% if final_include_completed %}
+          {{ all_items }}
+        {% else %}
+          {{ all_items | selectattr('status', 'equalto', 'needs_action') | list }}
+        {% endif %}
 
   # Check if there are items to print
   - condition: template
@@ -238,28 +232,32 @@ sequence:
     # Minimal header (no action needed)
     default: []
 
-  # Print date if requested
-  - condition: and
-    conditions:
-      - condition: template
-        value_template: "{{ final_add_date }}"
+  # Print date if requested (only for non-minimal headers)
+  - if:
+      - condition: and
+        conditions:
+          - condition: template
+            value_template: "{{ final_add_date }}"
+          - condition: template
+            value_template: "{{ header_style != 'minimal' }}"
+    then:
+      - service: "esphome.{{ printer_device }}_feed_paper"
+        data:
+          lines: 1
+      - service: "esphome.{{ printer_device }}_print_text"
+        data:
+          message: "{{ current_date }}"
+          text_size: "S"
+          alignment: "C"
+
+  # Add spacing after header (for non-minimal headers)
+  - if:
       - condition: template
         value_template: "{{ header_style != 'minimal' }}"
-  - service: "esphome.{{ printer_device }}_feed_paper"
-    data:
-      lines: 1
-  - service: "esphome.{{ printer_device }}_print_text"
-    data:
-      message: "{{ current_date }}"
-      text_size: "S"
-      alignment: "C"
-
-  # Add spacing after header
-  - condition: template
-    value_template: "{{ header_style != 'minimal' }}"
-  - service: "esphome.{{ printer_device }}_feed_paper"
-    data:
-      lines: 1
+    then:
+      - service: "esphome.{{ printer_device }}_feed_paper"
+        data:
+          lines: 1
 
   # Print each TODO item with checkbox
   - repeat:
@@ -267,92 +265,49 @@ sequence:
       sequence:
         - variables:
             item: "{{ filtered_items[repeat.index - 1] }}"
+            item_status: "{{ item.status }}"
+            item_summary: "{{ item.summary }}"
             checkbox: >
-              {% if item.status == 'completed' %}
+              {% if item_status == 'completed' %}
                 {{ filled_checkbox }}
               {% else %}
                 {{ empty_checkbox }}
               {% endif %}
-            item_text: "{{ checkbox }} {{ item.summary }}"
-            
-        # Add extra spacing between items if requested
-        - condition: and
-          conditions:
-            - condition: template
-              value_template: "{{ extra_spacing }}"
-            - condition: template
-              value_template: "{{ repeat.index > 1 }}"
-        - service: "esphome.{{ printer_device }}_feed_paper"
-          data:
-            lines: 1
+            item_text: "{{ checkbox }} {{ item_summary }}"
                 
         - service: "esphome.{{ printer_device }}_print_text"
           data:
             message: "{{ item_text }}"
             text_size: "{{ text_size }}"
             alignment: "L"
-            bold: "{{ item.status == 'completed' }}"
-            inverse: "{{ item.status == 'completed' }}"
+            bold: "{{ item_status == 'completed' }}"
 
-  # Print footer based on configuration
-  - choose:
-      # Count and date
-      - conditions:
-          - condition: template
-            value_template: "{{ footer_info == 'count_and_date' }}"
-        sequence:
-          - service: "esphome.{{ printer_device }}_feed_paper"
-            data:
-              lines: 1
-          - service: "esphome.{{ printer_device }}_print_text"
-            data:
-              message: "================================"
-              text_size: "S"
-              alignment: "C"
-          - service: "esphome.{{ printer_device }}_print_text"
-            data:
-              message: >
-                {{ filtered_items | length }} item{% if filtered_items | length != 1 %}s{% endif %}
-                {% if not final_include_completed and (todo_items | selectattr('status', 'equalto', 'completed') | list | length > 0) %}
-                ({{ todo_items | selectattr('status', 'equalto', 'completed') | list | length }} completed)
-                {% endif %}
-              text_size: "S"
-              alignment: "C"
-          - service: "esphome.{{ printer_device }}_print_text"
-            data:
-              message: "{{ current_date }}"
-              text_size: "S"
-              alignment: "C"
-              
-      # Count only
-      - conditions:
-          - condition: template
-            value_template: "{{ footer_info == 'count_only' }}"
-        sequence:
-          - service: "esphome.{{ printer_device }}_feed_paper"
-            data:
-              lines: 1
-          - service: "esphome.{{ printer_device }}_print_text"
-            data:
-              message: "{{ filtered_items | length }} item{% if filtered_items | length != 1 %}s{% endif %}"
-              text_size: "S"
-              alignment: "C"
-              
-      # Date only
-      - conditions:
-          - condition: template
-            value_template: "{{ footer_info == 'date_only' }}"
-        sequence:
-          - service: "esphome.{{ printer_device }}_feed_paper"
-            data:
-              lines: 1
-          - service: "esphome.{{ printer_device }}_print_text"
-            data:
-              message: "{{ current_date }}"
-              text_size: "S"
-              alignment: "C"
-    # No footer (no action needed)
-    default: []
+  # Print footer with count and date
+  - service: "esphome.{{ printer_device }}_feed_paper"
+    data:
+      lines: 1
+  - service: "esphome.{{ printer_device }}_print_text"
+    data:
+      message: "================================"
+      text_size: "S"
+      alignment: "C"
+  - service: "esphome.{{ printer_device }}_print_text"
+    data:
+      message: >
+        {{ filtered_items | length }} item{% if filtered_items | length != 1 %}s{% endif %}
+        {% if not final_include_completed %}
+          {% set completed_count = all_items | selectattr('status', 'equalto', 'completed') | list | length %}
+          {% if completed_count > 0 %}
+            ({{ completed_count }} completed)
+          {% endif %}
+        {% endif %}
+      text_size: "S"
+      alignment: "C"
+  - service: "esphome.{{ printer_device }}_print_text"
+    data:
+      message: "{{ current_date }}"
+      text_size: "S"
+      alignment: "C"
 
   # Final paper feed
   - service: "esphome.{{ printer_device }}_feed_paper"
