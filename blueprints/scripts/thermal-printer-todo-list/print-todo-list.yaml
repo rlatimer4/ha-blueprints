@@ -1,16 +1,18 @@
 blueprint:
-  name: "Reliable TODO List Printer (Fixed)"
+  name: "Enhanced TODO List Printer (Queue Compatible)"
   description: >
     Print Home Assistant TODO lists to a thermal printer with checkboxes.
     
-    Simplified and reliable version with proper parameter handling.
-    Uses todo.get_items service to properly retrieve TODO list data.
+    Updated for the new thermal printer queue implementation with proper service names.
+    Uses todo.get_items service to reliably retrieve TODO list data.
     
     Features:
-    - Prints items with [ ] or [X] checkboxes only
+    - Queue-compatible service calls with proper delays
+    - Prints items with [ ] or [X] checkboxes
     - Dropdown selection for TODO lists
-    - Simple printer device configuration
     - Clean formatting with date and item counts
+    - Enhanced error handling and logging
+    - Optimized for thermal printer paper usage
     
   domain: script
   
@@ -40,6 +42,46 @@ blueprint:
       default: true
       selector:
         boolean:
+        
+    header_style:
+      name: "Header Style"
+      description: "Choose header formatting style"
+      default: "simple"
+      selector:
+        select:
+          options:
+            - value: "simple"
+              label: "Simple (===)"
+            - value: "decorated" 
+              label: "Decorated (fancy)"
+            - value: "minimal"
+              label: "Minimal (no lines)"
+              
+    text_size:
+      name: "Text Size"
+      description: "Size for TODO items"
+      default: "S"
+      selector:
+        select:
+          options:
+            - value: "S"
+              label: "Small"
+            - value: "M"
+              label: "Medium"
+            - value: "L"
+              label: "Large"
+              
+    checkbox_style:
+      name: "Checkbox Style"
+      description: "Style for checkboxes"
+      default: "brackets"
+      selector:
+        select:
+          options:
+            - value: "brackets"
+              label: "[ ] [X]"
+            - value: "dash"
+              label: "- x"
 
 # Fields for runtime customization
 fields:
@@ -54,6 +96,11 @@ fields:
     required: false
     selector:
       boolean:
+  add_date:
+    description: "Add date to printout (overrides default)"
+    required: false
+    selector:
+      boolean:
 
 sequence:
   - variables:
@@ -62,18 +109,43 @@ sequence:
       default_todo_entity: !input default_todo_entity
       include_completed_default: !input include_completed_default
       add_date_default: !input add_date_default
+      header_style: !input header_style
+      text_size: !input text_size
+      checkbox_style: !input checkbox_style
       
       # Runtime parameters with fallbacks
       final_todo_entity: >
         {{ todo_entity if todo_entity is defined and todo_entity != "" else default_todo_entity }}
       final_include_completed: >
         {{ include_completed if include_completed is defined else include_completed_default }}
+      final_add_date: >
+        {{ add_date if add_date is defined else add_date_default }}
       
-      # Formatting
+      # Formatting variables
       list_name: >
         {{ state_attr(final_todo_entity, 'friendly_name') or 
            final_todo_entity.split('.')[1].replace('_', ' ').title() }}
       current_date: "{{ now().strftime('%Y-%m-%d %H:%M') }}"
+      
+      # Checkbox symbols based on style
+      empty_checkbox: >
+        {% if checkbox_style == 'dash' %}-
+        {% else %}[ ]{% endif %}
+      filled_checkbox: >
+        {% if checkbox_style == 'dash' %}x
+        {% else %}[X]{% endif %}
+
+  # Log the start of printing
+  - service: system_log.write
+    data:
+      message: "TODO Printer: Starting print job for {{ list_name }}"
+      level: info
+
+  # Wake printer to ensure it's ready
+  - service: "esphome.{{ printer_device }}_wake_printer"
+    
+  - delay:
+      milliseconds: 500
 
   # Get TODO items using the service call
   - service: todo.get_items
@@ -90,25 +162,87 @@ sequence:
         {% else %}
           {{ all_items | selectattr('status', 'equalto', 'needs_action') | list }}
         {% endif %}
+      completed_count: "{{ all_items | selectattr('status', 'equalto', 'completed') | list | length }}"
+      total_count: "{{ all_items | length }}"
 
   # Only proceed if we have items
   - condition: template
     value_template: "{{ filtered_items | length > 0 }}"
 
-  # Print header
-  - service: "esphome.{{ printer_device }}_print_text"
-    data:
-      message: "{{ list_name | upper }}"
-      text_size: "M"
-      alignment: "C"
-      bold: true
-      underline: false
-      inverse: false
-      rotation: 0
-      
+  # Print header based on style
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ header_style == 'decorated' }}"
+        sequence:
+          - service: "esphome.{{ printer_device }}_print_text"
+            data:
+              message: "╔═══════════════════════════════╗"
+              text_size: "S"
+              alignment: "C"
+              bold: false
+              underline: false
+              inverse: false
+              rotation: 0
+                
+          - service: "esphome.{{ printer_device }}_print_text"
+            data:
+              message: "║  {{ list_name | upper | center(29) }}  ║"
+              text_size: "S"
+              alignment: "C"
+              bold: true
+              underline: false
+              inverse: false
+              rotation: 0
+              
+          - service: "esphome.{{ printer_device }}_print_text"
+            data:
+              message: "╚═══════════════════════════════╝"
+              text_size: "S"
+              alignment: "C"
+              bold: false
+              underline: false
+              inverse: false
+              rotation: 0
+              
+      - conditions:
+          - condition: template
+            value_template: "{{ header_style == 'minimal' }}"
+        sequence:
+          - service: "esphome.{{ printer_device }}_print_text"
+            data:
+              message: "{{ list_name | upper }}"
+              text_size: "M"
+              alignment: "C"
+              bold: true
+              underline: false
+              inverse: false
+              rotation: 0            
+    default:
+      # Simple header style
+      - service: "esphome.{{ printer_device }}_print_text"
+        data:
+          message: "{{ list_name | upper }}"
+          text_size: "M"
+          alignment: "C"
+          bold: true
+          underline: false
+          inverse: false
+          rotation: 0     
+          
+      - service: "esphome.{{ printer_device }}_print_text"
+        data:
+          message: "================================"
+          text_size: "S"
+          alignment: "C"
+          bold: false
+          underline: false
+          inverse: false
+          rotation: 0
+  # Add date if requested
   - if:
       - condition: template
-        value_template: "{{ add_date_default }}"
+        value_template: "{{ final_add_date }}"
     then:
       - service: "esphome.{{ printer_device }}_print_text"
         data:
@@ -119,88 +253,77 @@ sequence:
           underline: false
           inverse: false
           rotation: 0
-
-  - service: "esphome.{{ printer_device }}_print_text"
-    data:
-      message: "================================"
-      text_size: "S"
-      alignment: "C"
-      bold: false
-      underline: false
-      inverse: false
-      rotation: 0
-      
+          
+  # Add spacing after header
   - service: "esphome.{{ printer_device }}_feed_paper"
     data:
       lines: 1
       
-  # Delay after header before starting items
-  - delay:
-      seconds: 1
+  # Log item count
+  - service: system_log.write
+    data:
+      message: "TODO Printer: Printing {{ filtered_items | length }} items"
+      level: info
 
-  # Print each item
+  # Print each item with proper queue delays
   - repeat:
       count: "{{ filtered_items | length }}"
       sequence:
         - variables:
             item: "{{ filtered_items[repeat.index - 1] }}"
             checkbox: >
-              {% if item.status == 'completed' %}[X]{% else %}[ ]{% endif %}
+              {% if item.status == 'completed' %}{{ filled_checkbox }}{% else %}{{ empty_checkbox }}{% endif %}
             item_text: "{{ checkbox }} {{ item.summary }}"
+            is_completed: "{{ item.status == 'completed' }}"
                 
+        # Print item with appropriate formatting
         - service: "esphome.{{ printer_device }}_print_text"
           data:
             message: "{{ item_text }}"
-            text_size: "S"
+            text_size: "{{ text_size }}"
             alignment: "L"
-            bold: "{{ item.status == 'completed' }}"
+            bold: "{{ is_completed }}"
             underline: false
             inverse: false
             rotation: 0
             
-        # Long delay between items (like debug version that worked)
+        # Queue-friendly delay between items
         - delay:
-            seconds: 2
+            milliseconds: 300
 
-  # Print footer
+  # Print footer section
   - service: "esphome.{{ printer_device }}_feed_paper"
     data:
       lines: 1
-      
-  - delay:
-      seconds: 1
-      
-  - service: "esphome.{{ printer_device }}_print_text"
-    data:
-      message: "================================"
-      text_size: "S"
-      alignment: "C"
-      bold: false
-      underline: false
-      inverse: false
-      rotation: 0
-      
-  - delay:
-      milliseconds: 500
-      
+
+  # Footer separator (only for non-minimal style)
+  - if:
+      - condition: template
+        value_template: "{{ header_style != 'minimal' }}"
+    then:
+      - service: "esphome.{{ printer_device }}_print_text"
+        data:
+          message: "================================"
+          text_size: "S"
+          alignment: "C"
+          bold: false
+          underline: false
+          inverse: false
+          rotation: 0      
+          
+  # Print summary line
   - service: "esphome.{{ printer_device }}_print_text"
     data:
       message: >
         {{ filtered_items | length }} item{% if filtered_items | length != 1 %}s{% endif %}
-        {% if not final_include_completed %}
-          {% set completed_count = all_items | selectattr('status', 'equalto', 'completed') | list | length %}
-          {% if completed_count > 0 %} ({{ completed_count }} completed){% endif %}
-        {% endif %}
+        {% if not final_include_completed and completed_count > 0 %} ({{ completed_count }} completed){% endif %}
       text_size: "S"
       alignment: "C"
       bold: false
       underline: false
       inverse: false
       rotation: 0
-      
-  - delay:
-      milliseconds: 500
-      
+  # Print timestamp
   - service: "esphome.{{ printer_device }}_print_text"
     data:
       message: "{{ current_date }}"
@@ -211,9 +334,16 @@ sequence:
       inverse: false
       rotation: 0
       
+  # Final paper feed
   - service: "esphome.{{ printer_device }}_feed_paper"
     data:
       lines: 3
+
+  # Log completion
+  - service: system_log.write
+    data:
+      message: "TODO Printer: Print job completed successfully"
+      level: info
 
 mode: queued
 icon: mdi:format-list-checkbox
