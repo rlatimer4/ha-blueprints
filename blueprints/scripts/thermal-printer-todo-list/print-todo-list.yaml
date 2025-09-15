@@ -49,6 +49,8 @@ blueprint:
           options:
             - label: "Square brackets [ ]"
               value: "square"
+            - label: "Checkbox symbols ☐ ☑"
+              value: "symbols"
             - label: "Simple dash - x"
               value: "dash"
 
@@ -89,10 +91,12 @@ sequence:
       
       # Checkbox characters
       empty_checkbox: >
-        {% if checkbox_style == 'dash' %}-
+        {% if checkbox_style == 'symbols' %}☐
+        {% elif checkbox_style == 'dash' %}-
         {% else %}[ ]{% endif %}
       filled_checkbox: >
-        {% if checkbox_style == 'dash' %}x
+        {% if checkbox_style == 'symbols' %}☑
+        {% elif checkbox_style == 'dash' %}x
         {% else %}[X]{% endif %}
 
   # Get TODO items using the service call
@@ -122,9 +126,6 @@ sequence:
       text_size: "M"
       alignment: "C"
       bold: true
-      underline: false
-      inverse: false
-      rotation: 0
       
   - if:
       - condition: template
@@ -135,26 +136,22 @@ sequence:
           message: "{{ current_date }}"
           text_size: "S"
           alignment: "C"
-          bold: false
-          underline: false
-          inverse: false
-          rotation: 0
 
   - service: "esphome.{{ printer_device }}_print_text"
     data:
       message: "================================"
       text_size: "S"
       alignment: "C"
-      bold: false
-      underline: false
-      inverse: false
-      rotation: 0
       
   - service: "esphome.{{ printer_device }}_feed_paper"
     data:
       lines: 1
+      
+  # Small delay after header before starting items
+  - delay:
+      milliseconds: 300
 
-  # Print each item (corrected iteration pattern based on HA community examples)
+  # Print each item
   - repeat:
       for_each: "{{ filtered_items }}"
       sequence:
@@ -170,9 +167,6 @@ sequence:
             text_size: "S"
             alignment: "L"
             bold: "{{ item.status == 'completed' }}"
-            underline: false
-            inverse: false
-            rotation: 0
 
   # Print footer
   - service: "esphome.{{ printer_device }}_feed_paper"
