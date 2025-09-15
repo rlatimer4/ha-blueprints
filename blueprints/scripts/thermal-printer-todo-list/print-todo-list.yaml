@@ -126,6 +126,9 @@ sequence:
       text_size: "M"
       alignment: "C"
       bold: true
+      underline: false
+      inverse: false
+      rotation: 0
       
   - if:
       - condition: template
@@ -136,12 +139,20 @@ sequence:
           message: "{{ current_date }}"
           text_size: "S"
           alignment: "C"
+          bold: false
+          underline: false
+          inverse: false
+          rotation: 0
 
   - service: "esphome.{{ printer_device }}_print_text"
     data:
       message: "================================"
       text_size: "S"
       alignment: "C"
+      bold: false
+      underline: false
+      inverse: false
+      rotation: 0
       
   - service: "esphome.{{ printer_device }}_feed_paper"
     data:
@@ -163,6 +174,9 @@ sequence:
             text_size: "S"
             alignment: "L"
             bold: "{{ item.status == 'completed' }}"
+            underline: false
+            inverse: false
+            rotation: 0
 
   # Print footer
   - service: "esphome.{{ printer_device }}_feed_paper"
@@ -173,6 +187,10 @@ sequence:
       message: "================================"
       text_size: "S"
       alignment: "C"
+      bold: false
+      underline: false
+      inverse: false
+      rotation: 0
   - service: "esphome.{{ printer_device }}_print_text"
     data:
       message: >
@@ -183,11 +201,19 @@ sequence:
         {% endif %}
       text_size: "S"
       alignment: "C"
+      bold: false
+      underline: false
+      inverse: false
+      rotation: 0
   - service: "esphome.{{ printer_device }}_print_text"
     data:
       message: "{{ current_date }}"
       text_size: "S"
       alignment: "C"
+      bold: false
+      underline: false
+      inverse: false
+      rotation: 0
   - service: "esphome.{{ printer_device }}_feed_paper"
     data:
       lines: 3
