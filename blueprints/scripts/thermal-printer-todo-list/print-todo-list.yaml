@@ -49,8 +49,6 @@ blueprint:
           options:
             - label: "Square brackets [ ]"
               value: "square"
-            - label: "Checkbox symbols ☐ ☑"
-              value: "symbols"
             - label: "Simple dash - x"
               value: "dash"
 
@@ -91,12 +89,10 @@ sequence:
       
       # Checkbox characters
       empty_checkbox: >
-        {% if checkbox_style == 'symbols' %}☐
-        {% elif checkbox_style == 'dash' %}-
+        {% if checkbox_style == 'dash' %}-
         {% else %}[ ]{% endif %}
       filled_checkbox: >
-        {% if checkbox_style == 'symbols' %}☑
-        {% elif checkbox_style == 'dash' %}x
+        {% if checkbox_style == 'dash' %}x
         {% else %}[X]{% endif %}
 
   # Get TODO items using the service call
@@ -160,10 +156,10 @@ sequence:
 
   # Print each item
   - repeat:
-      for_each: "{{ filtered_items }}"
+      count: "{{ filtered_items | length }}"
       sequence:
         - variables:
-            item: "{{ repeat.item }}"
+            item: "{{ filtered_items[repeat.index - 1] }}"
             checkbox: >
               {% if item.status == 'completed' %}{{ filled_checkbox }}{% else %}{{ empty_checkbox }}{% endif %}
             item_text: "{{ checkbox }} {{ item.summary }}"
