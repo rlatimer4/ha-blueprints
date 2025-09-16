@@ -142,10 +142,10 @@ sequence:
       level: info
 
   # Wake printer to ensure it's ready
-  - service: "esphome.{{ printer_device }}_wake_printer"
+  #- service: "esphome.{{ printer_device }}_wake_printer"
     
-  - delay:
-      milliseconds: 500
+  #- delay:
+  #    milliseconds: 500
 
   # Get TODO items using the service call
   - service: todo.get_items
