@@ -283,7 +283,7 @@ sequence:
             
         # Queue-friendly delay between items
         - delay:
-            milliseconds: 300
+            milliseconds: 800
 
   # Print footer section
   - service: "esphome.{{ printer_device }}_feed_paper"
