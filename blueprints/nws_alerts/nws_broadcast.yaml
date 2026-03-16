@@ -1,0 +1,108 @@
+blueprint:
+  name: NWS Severe Weather Google Broadcast (Standalone)
+  description: >
+    Broadcasts NWS weather alerts using the Google Assistant SDK directly from the NWS Alerts sensor.
+    No template sensors required. Respects quiet hours, ignores quiet hours for Extreme alerts, 
+    reads only the headlines, and has a built-in cooldown.
+  domain: automation
+  input:
+    nws_alerts_sensor:
+      name: NWS Alerts Sensor
+      description: The base sensor containing the 'Alerts' attribute (e.g., sensor.nws_alerts).
+      selector:
+        entity:
+          domain: sensor
+    trigger_above:
+      name: Minimum Severity Threshold
+      description: "0=Unknown, 1=Minor, 2=Moderate, 3=Severe, 4=Extreme. Triggers if the highest active severity is GREATER THAN this value."
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 3
+    active_after:
+      name: Active Time (Start)
+      description: Do not broadcast before this time (unless Extreme).
+      default: "05:00:00"
+      selector:
+        time: {}
+    active_before:
+      name: Active Time (End)
+      description: Do not broadcast after this time (unless Extreme).
+      default: "22:00:00"
+      selector:
+        time: {}
+    target_devices:
+      name: Google Assistant Targets
+      description: 'Comma-separated list of target device names as they appear in Google Home (e.g. kitchen_display, man_cave)'
+      default: "kitchen_display, man_cave, office_display, portable"
+      selector:
+        text: {}
+    cooldown_minutes:
+      name: Cooldown (Minutes)
+      description: Minimum timeout to wait before allowing another broadcast to fire.
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 120
+          unit_of_measurement: minutes
+
+mode: single
+max_exceeded: silent
+
+variables:
+  alerts_sensor: !input nws_alerts_sensor
+  threshold: !input trigger_above
+  targets_str: !input target_devices
+  # Calculate the highest severity level (0-4) on the fly
+  max_severity: >
+    {% set alerts = state_attr(alerts_sensor, 'Alerts') %}
+    {% set severity_map = {'Unknown': 0, 'Minor': 1, 'Moderate': 2, 'Severe': 3, 'Extreme': 4} %}
+    {% set ns = namespace(level=0) %}
+    {% if alerts %}
+      {% for alert in alerts %}
+        {% set level = severity_map.get(alert.get('Severity', 'Unknown'), 0) %}
+        {% if level > ns.level %}
+          {% set ns.level = level %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+    {{ ns.level | int(0) }}
+
+trigger:
+  # Trigger whenever the actual list of alerts changes
+  - platform: state
+    entity_id: !input nws_alerts_sensor
+    attribute: Alerts
+
+condition:
+  # 1. Check if the newly calculated severity is above your threshold
+  - condition: template
+    value_template: "{{ max_severity > (threshold | int) }}"
+  
+  # 2. Check time restrictions (Active hours OR Extreme severity)
+  - condition: or
+    conditions:
+      - condition: template
+        value_template: "{{ max_severity >= 4 }}"
+      - condition: time
+        after: !input active_after
+        before: !input active_before
+
+action:
+  - action: notify.google_assistant_sdk
+    data:
+      target: "{{ targets_str.split(',') | map('trim') | list }}"
+      message: >
+        {% set alerts = state_attr(alerts_sensor, 'Alerts') %}
+        {% if alerts %}
+          {% set headlines = alerts | map(attribute='Headline') | unique | list %}
+          National Weather Service Alert. {{ headlines | join('. ') | capitalize }}
+        {% else %}
+          National Weather Service has issued an alert.
+        {% endif %}
+  
+  # Prevent spam by halting further execution until the delay finishes
+  - delay:
+      minutes: !input cooldown_minutes
